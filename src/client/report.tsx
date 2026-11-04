@@ -206,11 +206,11 @@ function ReportBody({ data }: { data: Summary }) {
 
       <div className="grid gap-5 md:grid-cols-2">
         <BreakdownCard
+          whole={data.totals.visitors}
           title="Where they came from"
           description="Sign-ups count under where that person first came from."
           empty="Every visit was a click inside the site."
-          total={data.sources.length}
-          items={data.sources.slice(0, TOP).map((s) => ({
+          items={data.sources.map((s) => ({
             key: s.source,
             value: s.visitors,
             label: (
@@ -222,11 +222,11 @@ function ReportBody({ data }: { data: Summary }) {
           }))}
         />
         <BreakdownCard
+          whole={data.foundVia.reduce((sum, f) => sum + f.signups, 0)}
           title="What sign-ups told us"
           description={'Their answer to "How did you find us?" right after signing up.'}
           empty="No answers yet. Each new account is asked once, right after signing up."
-          total={data.foundVia.length}
-          items={data.foundVia.slice(0, TOP).map((f) => ({ key: f.answer, value: f.signups, label: f.label || f.answer }))}
+          items={data.foundVia.map((f) => ({ key: f.answer, value: f.signups, label: f.label || f.answer }))}
         />
       </div>
 
@@ -234,46 +234,49 @@ function ReportBody({ data }: { data: Summary }) {
 
       <div className="grid gap-5 md:grid-cols-3">
         <BreakdownCard
+          whole={data.totals.visitors}
           title="Devices"
           empty="No devices yet."
-          total={data.devices.length}
           items={data.devices.map((d) => ({ key: d.device ?? 'unknown', value: d.visitors, label: d.device ? (DEVICE_LABELS[d.device] ?? d.device) : 'Unknown' }))}
         />
         <BreakdownCard
+          whole={data.totals.visitors}
           title="Browsers"
           empty="No browsers yet."
-          total={data.browsers.length}
           items={data.browsers.map((b) => ({ key: b.browser ?? 'unknown', value: b.visitors, label: b.browser ?? 'Unknown' }))}
         />
         <BreakdownCard
+          whole={data.totals.visitors}
           title="Countries"
           empty="No countries yet."
-          total={data.countries.length}
-          items={data.countries.slice(0, TOP).map((c) => ({ key: c.country ?? 'unknown', value: c.visitors, label: countryName(c.country) }))}
+          items={data.countries.map((c) => ({ key: c.country ?? 'unknown', value: c.visitors, label: countryName(c.country) }))}
         />
       </div>
     </>
   );
 }
 
-function BreakdownCard({
+export function BreakdownCard({
   title,
   description,
   items,
-  total,
+  whole,
   empty,
 }: {
   title: string;
   description?: string;
+  /** Every row, biggest first. The card shows the top ones. */
   items: { key: string; value: number; label: ReactNode }[];
-  total: number;
+  /** What each share is of. The server sends only the top rows of a long list, so their sum falls short. */
+  whole: number;
   empty: string;
 }) {
+  const shown = items.slice(0, TOP);
   return (
     <Card>
-      <CardHeader title={title} description={total > TOP ? `${description ? `${description} ` : ''}Top ${TOP} of ${formatNumber(total)}.` : description} />
+      <CardHeader title={title} description={items.length > TOP ? `${description ? `${description} ` : ''}Top ${TOP} of ${formatNumber(items.length)}.` : description} />
       <CardBody>
-        {items.length ? <Breakdown items={items} format={formatNumber} /> : <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>}
+        {shown.length ? <Breakdown items={shown} whole={whole} format={formatNumber} /> : <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>}
       </CardBody>
     </Card>
   );

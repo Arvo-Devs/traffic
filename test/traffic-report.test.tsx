@@ -8,6 +8,7 @@ import { describe, expect, test } from 'bun:test';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToString } from 'react-dom/server';
 import { summaryKey } from '../src/client/api';
+import { BreakdownCard } from '../src/client/report';
 import { TrafficReport, TrafficSkeleton } from '../src/client';
 import { viewerTimeZone } from '../src/shared/format';
 import type { TrafficSummary } from '../src/shared/summary';
@@ -252,5 +253,33 @@ describe('TrafficReport', () => {
     );
     expect(moved).toContain('Latest sign-ups');
     expect(render(qc)).toContain('aria-label="Loading"');
+  });
+});
+
+describe('a breakdown cut to its top 8', () => {
+  const shares = (html: string) => [...html.matchAll(/>([0-9]+)(?:<!-- -->)?%</g)].map((m) => Number(m[1]));
+
+  test('gives each row its share of the whole, not of the 8 shown', () => {
+    // 12 countries of 9 visitors each: each is 8% of the 108, where the 8 shown say 13%.
+    const countries = ['AR', 'BR', 'DE', 'GB', 'IN', 'PH', 'UA', 'US', 'VN', 'NP', 'CA', 'AU'];
+    const html = renderToString(<BreakdownCard title="Countries" empty="No countries yet." whole={108} items={countries.map((c) => ({ key: c, value: 9, label: c }))} />);
+    expect(html).toContain('Top 8 of 12.');
+    expect(shares(html)).toEqual([8, 8, 8, 8, 8, 8, 8, 8]);
+  });
+
+  test('a list shown whole still adds up to 100%', () => {
+    const html = renderToString(
+      <BreakdownCard
+        title="Devices"
+        empty="No devices yet."
+        whole={120}
+        items={[
+          { key: 'phone', value: 60, label: 'Phone' },
+          { key: 'computer', value: 36, label: 'Computer' },
+          { key: 'tablet', value: 24, label: 'Tablet' },
+        ]}
+      />,
+    );
+    expect(shares(html)).toEqual([50, 30, 20]);
   });
 });
