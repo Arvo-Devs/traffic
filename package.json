@@ -1,0 +1,52 @@
+{
+  "name": "@arvo/traffic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Traffic for an app's admin panel: a visit counter with no cookies, where each sign-up came from, \"How did you find us?\", Google Ads sign-ups and the Traffic page.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./counter": "./src/counter.tsx",
+    "./notes": "./src/notes.ts",
+    "./paths": "./src/paths.ts",
+    "./found-via": "./src/shared/found-via.ts",
+    "./styles/*": "./src/styles/*",
+    "./migrations/*": "./migrations/*"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@base-ui/react": "^1.8.0",
+    "@tanstack/react-query": "^5.100.9",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "^16.3.8",
+    "postgres": "^3.4.5",
+    "react": "^19.2.6",
+    "tailwind-merge": "^3.5.0"
+  },
+  "devDependencies": {
+    "@base-ui/react": "^1.8.0",
+    "@tanstack/react-query": "^5.100.9",
+    "@types/bun": "^1.3.9",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.4.4",
+    "postgres": "^3.4.5",
+    "react": "^19.2.9",
+    "react-dom": "^19.2.9",
+    "tailwind-merge": "^3.5.0",
+    "typescript": "^6.0.2"
+  }
+}
