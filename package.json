@@ -1,6 +1,6 @@
 {
   "name": "@arvo/traffic",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Traffic for an app's admin panel: a visit counter with no cookies, where each sign-up came from, \"How did you find us?\", Google Ads sign-ups and the Traffic page.",
   "type": "module",

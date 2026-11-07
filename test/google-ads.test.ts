@@ -88,29 +88,44 @@ describe('the login Google Ads sends', () => {
 });
 
 describe('the file Google Ads reads', () => {
+  const HEADER = 'Google Click ID,Conversion Name,Conversion Time,GBRAID,WBRAID\r\n';
+
   test('column names first, then one row per sign-up with its time in UTC', () => {
     expect(GOOGLE_ADS_CONVERSION_NAME).toBe('Sign-up');
     expect(conversionTime('2026-10-26T18:04:05.678Z')).toBe('2026-10-26 18:04:05+0000');
     expect(conversionTime('2026-10-26T11:04:05-07:00')).toBe('2026-10-26 18:04:05+0000');
     expect(
       conversionsCsv([
-        { gclid: GCLID, occurredAt: '2026-10-26T18:04:05.678Z' },
-        { gclid: 'EAIaIQobChMI8_pQ', occurredAt: '2026-10-27T00:00:00.000Z' },
+        { kind: 'gclid', id: GCLID, occurredAt: '2026-10-26T18:04:05.678Z' },
+        { kind: 'gclid', id: 'EAIaIQobChMI8_pQ', occurredAt: '2026-10-27T00:00:00.000Z' },
       ]),
     ).toBe(
-      'Google Click ID,Conversion Name,Conversion Time\r\n'
-        + `${GCLID},Sign-up,2026-10-26 18:04:05+0000\r\n`
-        + 'EAIaIQobChMI8_pQ,Sign-up,2026-10-27 00:00:00+0000\r\n',
+      HEADER
+        + `${GCLID},Sign-up,2026-10-26 18:04:05+0000,,\r\n`
+        + 'EAIaIQobChMI8_pQ,Sign-up,2026-10-27 00:00:00+0000,,\r\n',
+    );
+  });
+
+  test('an iOS click with no gclid goes in the GBRAID or WBRAID column, the first three columns where they always were', () => {
+    expect(
+      conversionsCsv([
+        { kind: 'gbraid', id: '0AAAAADa3bC9xYzQ_k-1', occurredAt: '2026-11-06T16:14:00.000Z' },
+        { kind: 'wbraid', id: 'CkQKCQjw8--2BhCHEjQA', occurredAt: '2026-11-06T17:00:00.000Z' },
+      ]),
+    ).toBe(
+      HEADER
+        + ',Sign-up,2026-11-06 16:14:00+0000,0AAAAADa3bC9xYzQ_k-1,\r\n'
+        + ',Sign-up,2026-11-06 17:00:00+0000,,CkQKCQjw8--2BhCHEjQA\r\n',
     );
   });
 
   test("the app's conversion name is written as Google Ads needs it, quoted when it must be", () => {
-    expect(conversionsCsv([{ gclid: 'EAIaIQobChMI8_pQ', occurredAt: '2026-10-27T00:00:00.000Z' }], 'Sign-up, paid')).toBe(
-      'Google Click ID,Conversion Name,Conversion Time\r\nEAIaIQobChMI8_pQ,"Sign-up, paid",2026-10-27 00:00:00+0000\r\n',
+    expect(conversionsCsv([{ kind: 'gclid', id: 'EAIaIQobChMI8_pQ', occurredAt: '2026-10-27T00:00:00.000Z' }], 'Sign-up, paid')).toBe(
+      `${HEADER}EAIaIQobChMI8_pQ,"Sign-up, paid",2026-10-27 00:00:00+0000,,\r\n`,
     );
   });
 
   test('with no sign-ups yet the file is the column names alone', () => {
-    expect(conversionsCsv([])).toBe('Google Click ID,Conversion Name,Conversion Time\r\n');
+    expect(conversionsCsv([])).toBe(HEADER);
   });
 });

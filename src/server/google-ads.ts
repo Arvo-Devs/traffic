@@ -10,8 +10,10 @@
  * reads the last 90 days on every run and skips a conversion it already has
  * (the same click id, name and time), so the file always lists all 90 days.
  *
- * A file import takes a gclid only. A gbraid or wbraid (an iOS click) is
- * stored on the row too, for an upload through the Google Ads API later.
+ * Each row carries one click id, as Google Ads asks: the gclid when the click
+ * has one, otherwise its gbraid or wbraid (an iOS click that came without a
+ * gclid). Google counts a conversion sent with a gbraid or wbraid only when
+ * the conversion action counts Every conversion, not One.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { GOOGLE_ADS_CONVERSION_NAME, type GoogleAdsLogin, type TrafficAccount, type TrafficSql } from '../config';
@@ -41,13 +43,28 @@ export function hasImportLogin(headers: Headers, login: GoogleAdsLogin): boolean
   return userMatches && passwordMatches;
 }
 
-export type AdConversion = Readonly<{ gclid: string; occurredAt: string }>;
+/** Which click id a conversion is sent with. */
+export type AdClickKind = 'gclid' | 'gbraid' | 'wbraid';
 
-type SignupRow = { gclid: string | null; occurred_at: Date | string; user_id: string | null };
+export type AdConversion = Readonly<{ kind: AdClickKind; id: string; occurredAt: string }>;
+
+type SignupRow = { gclid: string | null; gbraid: string | null; wbraid: string | null; occurred_at: Date | string; user_id: string | null };
+
+/** The one click id a sign-up is sent with: its gclid, else its gbraid, else its wbraid. */
+function sentClick(row: SignupRow): { kind: AdClickKind; id: string } | null {
+  for (const kind of ['gclid', 'gbraid', 'wbraid'] as const) {
+    const id = clickId(row[kind]);
+    if (id) return { kind, id };
+  }
+  return null;
+}
 
 /**
- * Sign-ups of the last 90 days that came from a Google ad, oldest first, one
- * per click. Excluded sign-ups (a test tag, a bot) are left out, and so are
+ * Sign-ups of the last 90 days that came from a Google ad, oldest first. One
+ * per gclid, so a second sign-up from the same click is not sent again. A
+ * sign-up with only a gbraid or wbraid is always its own row: Google gives
+ * one of those to many clicks, so it cannot tell two people apart.
+ * Excluded sign-ups (a test tag, a bot) are left out, and so are
  * the team's own: the accounts whose email, as `accounts` gives it now, is
  * one of `staff`. When `accounts` cannot answer (null), the team cannot be
  * told apart and `onUnchecked` is called; the file still goes out.
@@ -64,30 +81,35 @@ export async function googleAdsSignups(
   const now = options.now ?? new Date();
   const since = new Date(now.getTime() - GOOGLE_ADS_IMPORT_DAYS * DAY).toISOString();
   const rows = await sql<SignupRow[]>`
-    select gclid, occurred_at, user_id from traffic_visits
-    where kind = 'signup' and gclid is not null and excluded is null
+    select gclid, gbraid, wbraid, occurred_at, user_id from traffic_visits
+    where kind = 'signup' and (gclid is not null or gbraid is not null or wbraid is not null) and excluded is null
       and occurred_at > ${since}::timestamptz and occurred_at <= ${now.toISOString()}::timestamptz
     order by occurred_at asc
   `;
-  const listed = rows.filter((row) => clickId(row.gclid));
+  const listed = rows.flatMap((row) => {
+    const click = sentClick(row);
+    return click ? [{ row, click }] : [];
+  });
 
   const staffIds = new Set<string>();
   const staff = options.staff ?? new Set<string>();
   if (staff.size && options.accounts) {
-    const ids = [...new Set(listed.map((row) => row.user_id).filter((id): id is string => Boolean(id)))];
+    const ids = [...new Set(listed.map(({ row }) => row.user_id).filter((id): id is string => Boolean(id)))];
     const found = ids.length ? await options.accounts(ids) : [];
     if (found === null) options.onUnchecked?.();
     else for (const account of found) if (account.email && staff.has(account.email.trim().toLowerCase())) staffIds.add(account.id);
   }
 
-  const seen = new Set<string>();
+  const seenGclids = new Set<string>();
   const conversions: AdConversion[] = [];
-  for (const row of listed) {
-    const gclid = clickId(row.gclid);
-    if (!gclid || seen.has(gclid) || (row.user_id && staffIds.has(row.user_id))) continue;
-    seen.add(gclid);
+  for (const { row, click } of listed) {
+    if (row.user_id && staffIds.has(row.user_id)) continue;
+    if (click.kind === 'gclid') {
+      if (seenGclids.has(click.id)) continue;
+      seenGclids.add(click.id);
+    }
     const occurredAt = row.occurred_at instanceof Date ? row.occurred_at.toISOString() : new Date(row.occurred_at).toISOString();
-    conversions.push({ gclid, occurredAt });
+    conversions.push({ ...click, occurredAt });
   }
   return conversions;
 }
@@ -103,13 +125,19 @@ function cell(value: string): string {
 
 /**
  * The file Google Ads reads: its column names in the first row, then one row
- * per sign-up. No value or currency: a sign-up has no price, so Google uses
- * the conversion action's own value. Never a name or an email.
+ * per sign-up, its one click id in the column for its kind and the other two
+ * empty. GBRAID and WBRAID come last, so a mapping made when the file had
+ * only the first three columns still reads them. No value or currency: a
+ * sign-up has no price, so Google uses the conversion action's own value.
+ * Never a name or an email.
  */
 export function conversionsCsv(conversions: readonly AdConversion[], conversionName = GOOGLE_ADS_CONVERSION_NAME): string {
   const rows = [
-    ['Google Click ID', 'Conversion Name', 'Conversion Time'],
-    ...conversions.map((conversion) => [conversion.gclid, conversionName, conversionTime(conversion.occurredAt)]),
+    ['Google Click ID', 'Conversion Name', 'Conversion Time', 'GBRAID', 'WBRAID'],
+    ...conversions.map((conversion) => {
+      const id = (kind: AdClickKind) => (conversion.kind === kind ? conversion.id : '');
+      return [id('gclid'), conversionName, conversionTime(conversion.occurredAt), id('gbraid'), id('wbraid')];
+    }),
   ];
   return rows.map((row) => `${row.map(cell).join(',')}\r\n`).join('');
 }

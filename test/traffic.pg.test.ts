@@ -601,13 +601,20 @@ describe.skipIf(!ROOT_URL)('traffic (pg)', () => {
       expect(row).toMatchObject({ source: 'Google', views_before: 3, gclid: GCLID });
 
       // Left out: a test, the team's own account (by its email as the app has it now), one too old
-      // for Google, one with no click id, an iOS click with only a wbraid, a second sign-up from the same click.
+      // for Google, one with no click id, a second sign-up from the same gclid.
+      const signedUp = new Date(row!.occurred_at).getTime();
+      const before = (ms: number) => new Date(signedUp - ms).toISOString();
       await signupRow('usr_test', { gclid: 'EAIaIQobChMItestClick', excluded: 'test', campaign: 'ex-test-ads' });
       await signupRow('usr_staff', { gclid: 'EAIaIQobChMIstaffClick' });
       await signupRow('usr_old', { gclid: 'EAIaIQobChMIoldClick', occurred_at: new Date(Date.now() - 91 * DAY).toISOString() });
       await signupRow('usr_none', {});
-      await signupRow('usr_ios', { wbraid: 'CkQKCQjw8--2BhCHEjQA' });
-      await signupRow('usr_again', { gclid: GCLID, occurred_at: new Date(new Date(row!.occurred_at).getTime() + 1).toISOString() });
+      await signupRow('usr_again', { gclid: GCLID, occurred_at: new Date(signedUp + 1).toISOString() });
+      // Listed: iOS clicks with no gclid, each its own row even when two share a gbraid (Google
+      // gives one gbraid to many clicks), and a click with both, sent with its gclid alone.
+      await signupRow('usr_ios_w', { wbraid: 'CkQKCQjw8--2BhCHEjQA', occurred_at: before(4000) });
+      await signupRow('usr_ios_a', { gbraid: '0AAAAADa3bC9xYzQ_k-1', occurred_at: before(3000) });
+      await signupRow('usr_ios_b', { gbraid: '0AAAAADa3bC9xYzQ_k-1', occurred_at: before(2000) });
+      await signupRow('usr_both', { gclid: 'EAIaIQobChMIbothClick', gbraid: '0AAAAADa3bC9xYzQ_k-1', occurred_at: before(1000) });
       extraAccounts.set('usr_staff', { id: 'usr_staff', name: 'Team Member', email: 'admin@example.com' });
 
       const denied = await fetchFile(traffic);
@@ -619,7 +626,14 @@ describe.skipIf(!ROOT_URL)('traffic (pg)', () => {
       expect(file.status).toBe(200);
       expect(file.headers.get('content-type')).toBe('text/csv; charset=utf-8');
       expect(file.headers.get('cache-control')).toBe('no-store');
-      expect(await file.text()).toBe(`Google Click ID,Conversion Name,Conversion Time\r\n${GCLID},Sign-up,${conversionTime(new Date(row!.occurred_at).toISOString())}\r\n`);
+      expect(await file.text()).toBe(
+        'Google Click ID,Conversion Name,Conversion Time,GBRAID,WBRAID\r\n'
+          + `,Sign-up,${conversionTime(before(4000))},,CkQKCQjw8--2BhCHEjQA\r\n`
+          + `,Sign-up,${conversionTime(before(3000))},0AAAAADa3bC9xYzQ_k-1,\r\n`
+          + `,Sign-up,${conversionTime(before(2000))},0AAAAADa3bC9xYzQ_k-1,\r\n`
+          + `EAIaIQobChMIbothClick,Sign-up,${conversionTime(before(1000))},,\r\n`
+          + `${GCLID},Sign-up,${conversionTime(before(0))},,\r\n`,
+      );
     });
 
     test('when the app cannot say whose accounts they are, the file leaves out only test sign-ups, and says so once', async () => {
@@ -631,14 +645,14 @@ describe.skipIf(!ROOT_URL)('traffic (pg)', () => {
       extraAccounts.set('usr_staff', { id: 'usr_staff', name: 'Team Member', email: 'admin@example.com' });
 
       accountsHook.unknown = true;
-      const listed = `Google Click ID,Conversion Name,Conversion Time\r\nEAIaIQobChMIstaffClick,Sign-up,${conversionTime(at)}\r\n`;
+      const listed = `Google Click ID,Conversion Name,Conversion Time,GBRAID,WBRAID\r\nEAIaIQobChMIstaffClick,Sign-up,${conversionTime(at)},,\r\n`;
       expect(await (await fetchFile(instance, basic(IMPORT_PASSWORD), '66.249.80.2')).text()).toBe(listed);
       expect(await (await fetchFile(instance, basic(IMPORT_PASSWORD), '66.249.80.2')).text()).toBe(listed);
       expect(said.filter((line) => line.includes("team's own accounts"))).toHaveLength(1);
 
       // Once the app can say again, the team is left out again.
       accountsHook.unknown = false;
-      expect(await (await fetchFile(instance, basic(IMPORT_PASSWORD), '66.249.80.2')).text()).toBe('Google Click ID,Conversion Name,Conversion Time\r\n');
+      expect(await (await fetchFile(instance, basic(IMPORT_PASSWORD), '66.249.80.2')).text()).toBe('Google Click ID,Conversion Name,Conversion Time,GBRAID,WBRAID\r\n');
     });
 
     test('without the login, or with a short password, the file does not exist', async () => {

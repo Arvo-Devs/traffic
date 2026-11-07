@@ -182,6 +182,9 @@ the config, or leave both out for the default list.
 password of 20 characters or more) and give Google Ads the address
 `https://<site>/api/traffic/google-ads.csv` with that login for a scheduled
 upload of conversions from clicks. Without it, the route does not exist.
+Map `Google Click ID`, `Conversion Time`, `GBRAID` and `WBRAID` in Google
+Ads, and set the conversion action to count Every conversion: Google counts
+an iPhone click that came with only a GBRAID or WBRAID that way alone.
 
 ## Routes
 
