@@ -75,10 +75,13 @@ export type SummaryInput = Readonly<{
   /** The answers to "How did you find us?", for their labels. */
   answers: readonly FoundViaChoice[];
   accounts?: Accounts | null;
+  /** The moment the report is for. The database's clock when left out; a test stands on a given moment. */
+  now?: Date;
 }>;
 
 export async function trafficSummary(sql: TrafficSql, input: SummaryInput): Promise<TrafficSummary> {
   const { range } = input;
+  const now = input.now ? sql`${input.now.toISOString()}::timestamptz` : sql`now()`;
   const timeZone = await databaseTimeZone(sql, safeTimeZone(input.timeZone));
   const back = rangeDaysBack(range);
   const bucket = rangeBucket(range);
@@ -86,9 +89,12 @@ export async function trafficSummary(sql: TrafficSql, input: SummaryInput): Prom
   // The window starts at local midnight `back` days ago and runs to now; the
   // previous window is the same stretch one span earlier (today against
   // yesterday until the same time, a week against the week before).
-  const start = sql`((date_trunc('day', now() at time zone ${timeZone}::text) - make_interval(days => ${back}::int)) at time zone ${timeZone}::text)`;
-  const previousStart = sql`(${start} - make_interval(days => ${span}::int))`;
-  const previousEnd = sql`(now() - make_interval(days => ${span}::int))`;
+  // Days are counted on the viewer's clock (a local time), then turned back
+  // into a moment, so a day when the clocks change keeps its 23 or 25 hours.
+  const local = sql`(${now} at time zone ${timeZone}::text)`;
+  const start = sql`((date_trunc('day', ${local}) - make_interval(days => ${back}::int)) at time zone ${timeZone}::text)`;
+  const previousStart = sql`((date_trunc('day', ${local}) - make_interval(days => ${back + span}::int)) at time zone ${timeZone}::text)`;
+  const previousEnd = sql`((${local} - make_interval(days => ${span}::int)) at time zone ${timeZone}::text)`;
 
   const [totalsRows, seriesRows, sourceRows, savedRows, unsavedRows, pageRows, countryRows, deviceRows, browserRows, signups, foundViaRows] = await Promise.all([
     sql<Row[]>`
@@ -101,7 +107,7 @@ export async function trafficSummary(sql: TrafficSql, input: SummaryInput): Prom
         count(*) filter (where kind = 'view' and occurred_at < ${previousEnd}) as previous_views,
         count(*) filter (where kind = 'signup' and occurred_at < ${previousEnd}) as previous_signups,
         (select count(distinct visitor_key) from traffic_visits
-          where kind = 'view' and excluded is null and occurred_at > now() - interval '5 minutes') as live
+          where kind = 'view' and excluded is null and occurred_at > ${now} - interval '5 minutes') as live
       from traffic_visits
       where excluded is null and occurred_at >= ${previousStart}
     `,
@@ -109,7 +115,7 @@ export async function trafficSummary(sql: TrafficSql, input: SummaryInput): Prom
       with buckets as (
         select generate_series(
           date_trunc(${bucket}::text, ${start} at time zone ${timeZone}::text),
-          date_trunc(${bucket}::text, now() at time zone ${timeZone}::text),
+          date_trunc(${bucket}::text, ${now} at time zone ${timeZone}::text),
           make_interval(hours => ${bucket === 'hour' ? 1 : 0}::int, days => ${bucket === 'day' ? 1 : 0}::int)
         ) as bucket
       ), counted as (

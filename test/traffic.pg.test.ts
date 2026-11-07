@@ -14,6 +14,7 @@ import postgres from 'postgres';
 import type { TrafficAccount, TrafficConfig } from '../src/config';
 import { createTraffic, type Traffic } from '../src/index';
 import { conversionTime } from '../src/server/google-ads';
+import { trafficSummary } from '../src/server/summary';
 import { visitorKey } from '../src/server/request';
 import { TRAFFIC_CLEAR_BATCH, TRAFFIC_CLEAR_MAX_BATCHES, clearOldVisitorAddresses } from '../src/server/retention';
 import type { TrafficSummary } from '../src/shared/summary';
@@ -327,6 +328,35 @@ describe.skipIf(!ROOT_URL)('traffic (pg)', () => {
       expect(unsaved.every((l) => l.visitors === 2 && l.platform === 'X' && l.path === null)).toBe(true);
       // The 101st tag by visitors (ties by name) is the one left out.
       expect(unsaved.map((l) => l.name)).not.toContain('tag-100');
+    });
+
+    test('"yesterday by this time" and "the 7 days before" keep the clock of the viewer across a time change', async () => {
+      // Los Angeles went from PDT (UTC-7) to PST (UTC-8) at 2 AM on Nov 1, 2026.
+      // The earlier window was worked out in the database's own zone (UTC), so
+      // around the change it started or ended an hour away from the viewer's clock.
+      const zone = 'America/Los_Angeles';
+      const views = (...times: string[]) =>
+        Promise.all(times.map((at) => sql`insert into traffic_visits ${sql({ id: crypto.randomUUID(), kind: 'view', path: '/', visitor_key: at, source: 'Google', occurred_at: at })}`));
+      await views(
+        '2026-10-25T07:30:00Z', // Oct 25, 12:30 AM PDT: the first hour of "the 7 days before" Nov 2
+        '2026-10-31T07:30:00Z', // Oct 31, 12:30 AM PDT
+        '2026-10-31T17:30:00Z', // Oct 31, 10:30 AM PDT: after 10 AM, so not "by this time" on Nov 1
+        '2026-11-01T07:30:00Z', // Nov 1, 12:30 AM PDT: the first hour of "yesterday" on Nov 2
+        '2026-11-01T17:30:00Z', // Nov 1, 9:30 AM PST
+      );
+      const at = (range: 'today' | '7d', now: string) =>
+        trafficSummary(sql, { range, timeZone: zone, site: { url: 'https://example.com', linkPages: [], testTag: 'ex-test' }, answers: [], now: new Date(now) });
+
+      // Nov 2, 10 AM PST: yesterday is Nov 1 from 12 AM PDT to 10 AM PST.
+      expect((await at('today', '2026-11-02T18:00:00Z')).previous.views).toBe(2);
+      // Nov 1, 10 AM PST: yesterday is Oct 31 from 12 AM to 10 AM PDT.
+      const nov1 = await at('today', '2026-11-01T18:00:00Z');
+      expect(nov1.windowStart).toBe('2026-11-01T07:00:00.000Z');
+      expect(nov1.previous.views).toBe(1);
+      // 7 days on Nov 7, 10 AM PST: Oct 25 from 12 AM PDT to Oct 31 at 10 AM PDT.
+      const week = await at('7d', '2026-11-07T18:00:00Z');
+      expect(week.windowStart).toBe('2026-11-01T07:00:00.000Z');
+      expect(week.previous.views).toBe(2);
     });
 
     test('a zone Chrome names by its old name loads in that zone', async () => {

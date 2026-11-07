@@ -145,14 +145,17 @@ function XAxis({ labels }: { labels: string[] }) {
 /** Horizontal share bars, for spend by type and similar breakdowns. */
 export function Breakdown({
   items,
+  whole,
   format,
   className,
 }: {
   items: { label: ReactNode; value: number; key: string }[];
+  /** What each share is of, when `items` are only the top of a longer list. Defaults to the sum of `items`. */
+  whole?: number;
   format: (v: number) => string;
   className?: string;
 }) {
-  const total = items.reduce((s, i) => s + i.value, 0);
+  const total = whole ?? items.reduce((s, i) => s + i.value, 0);
   const max = Math.max(1, ...items.map((i) => i.value));
   return (
     <ul className={cn('space-y-3', className)}>
